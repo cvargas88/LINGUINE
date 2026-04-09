@@ -2,37 +2,93 @@
 % Please edit documentation in R/config.R
 \name{create_linguine_config}
 \alias{create_linguine_config}
-\title{Create LINGUINE Configuration}
+\title{Create LINGUINE Configuration Object}
 \usage{
 create_linguine_config(
-  dataset = "LINGUINE",
+  dataset,
   min_chromosome_length_bp = 0,
+  orthology_type = "OGs",
+  orthology_filename = "Orthogroups.tsv",
+  tree_filename = "species_tree.nwk",
   base_dir = getwd(),
-  hmm_params = list(prob_self_syn_hmm1 = 0.995, prob_to_other_syn_hmm1 = 0.005,
-    prob_emit_correct_syn_hmm1_value = 0.85, prob_emit_non_syn_obs_from_syn_hmm1_value =
-    0.08, prob_emit_no_ortholog_from_syn_hmm1_value = 0.05,
-    prob_emit_multiple_b_chrs_from_syn_hmm1_value = 0.01),
-  thresholds = list(window_size = 10, purity_threshold = 0.8, min_final_block_size = 10,
-    fisher_p = 0.01, fisher_odds = 2, min_ogs_by_block = 2, og_abundance = 90,
-    fisher_p_lgs = 1e-20, fisher_odds_lgs = 4, paralogy_p = 1e-20, paralogy_odds = 10,
-    outgroup_dominance = 0.05, parent_assignment = 0.6, ribbon_max_links = 5)
+  prob_self_syn_hmm1 = 0.995,
+  prob_to_other_syn_hmm1 = 0.005,
+  prob_emit_correct_syn_hmm1_value = 0.85,
+  prob_emit_non_syn_obs_from_syn_hmm1_value = 0.08,
+  prob_emit_no_ortholog_from_syn_hmm1_value = 0.05,
+  prob_emit_multiple_b_chrs_from_syn_hmm1_value = 0.01,
+  window_size = 10,
+  purity_threshold = 0.8,
+  min_final_block_size = 10,
+  fisher_p = 0.01,
+  fisher_odds = 2,
+  min_ogs_by_block = 2,
+  og_abundance = 90,
+  fisher_p_lgs = 1e-20,
+  fisher_odds_lgs = 4,
+  paralogy_p = 1e-20,
+  paralogy_odds = 10,
+  outgroup_dominance = 0.05,
+  parent_assignment = 0.6,
+  ribbon_max_links = 5
 )
 }
 \arguments{
-\item{dataset}{Character. Name of the dataset.}
+\item{dataset}{Character. Name of the dataset/run.}
 
-\item{min_chromosome_length_bp}{Numeric. Minimum chromosome/scaffold length filter (in base pairs).}
+\item{min_chromosome_length_bp}{Numeric. Minimum scaffold size.}
 
-\item{base_dir}{Character. Root directory for inputs/outputs. Defaults to current working directory.}
+\item{orthology_type}{Character. "OGs" or "HOGs".}
 
-\item{hmm_params}{List. Transition and emission probabilities.}
+\item{orthology_filename}{Character. Target file or directory name.}
 
-\item{thresholds}{List. Thresholds for classification, graph clustering, and plotting.}
+\item{tree_filename}{Character. Newick tree file name.}
+
+\item{base_dir}{Character. Root directory for the run.}
+
+\item{prob_self_syn_hmm1}{Numeric. HMM self-transition probability.}
+
+\item{prob_to_other_syn_hmm1}{Numeric. HMM distinct-transition probability.}
+
+\item{prob_emit_correct_syn_hmm1_value}{Numeric. HMM correct emission probability.}
+
+\item{prob_emit_non_syn_obs_from_syn_hmm1_value}{Numeric. HMM noise emission probability.}
+
+\item{prob_emit_no_ortholog_from_syn_hmm1_value}{Numeric. HMM missing emission probability.}
+
+\item{prob_emit_multiple_b_chrs_from_syn_hmm1_value}{Numeric. HMM paralogy emission probability.}
+
+\item{window_size}{Numeric. Sliding window size for block classification.}
+
+\item{purity_threshold}{Numeric. Minimum gene purity for block consensus.}
+
+\item{min_final_block_size}{Numeric. Minimum genes to retain a block.}
+
+\item{fisher_p}{Numeric. Enrichment p-value threshold.}
+
+\item{fisher_odds}{Numeric. Enrichment odds ratio threshold.}
+
+\item{min_ogs_by_block}{Numeric. Minimum distinct OGs to validate a block.}
+
+\item{og_abundance}{Numeric. Percentile threshold to discard ubiquitous OGs.}
+
+\item{fisher_p_lgs}{Numeric. Graph clustering p-value threshold.}
+
+\item{fisher_odds_lgs}{Numeric. Graph clustering odds ratio threshold.}
+
+\item{paralogy_p}{Numeric. Paralogy consolidation p-value.}
+
+\item{paralogy_odds}{Numeric. Paralogy consolidation odds ratio.}
+
+\item{outgroup_dominance}{Numeric. Minimum proportion for outgroup structural candidate.}
+
+\item{parent_assignment}{Numeric. Minimum overlap for orphan partition assignment.}
+
+\item{ribbon_max_links}{Numeric. Maximum visual links per orthogroup.}
 }
 \value{
-A structured list of class \code{linguine_config} containing all pipeline parameters and paths.
+A \code{linguine_config} list object.
 }
 \description{
-Generates a centralized configuration object for the Ancestral Genome Reconstruction Pipeline.
-Instead of relying on global variables, this object is passed to downstream functions.
+Generates the strict parameter list required to run the pipeline.
 }
