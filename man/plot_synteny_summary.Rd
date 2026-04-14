@@ -15,6 +15,9 @@ plot_synteny_summary(ref_species, comp_species, comparison_type, config)
 
 \item{config}{A \code{linguine_config} object.}
 }
+\value{
+Invisible NULL. Saves plots to the configured plots directory.
+}
 \description{
 Generates visual distributions and karyoplots to map algorithmic
 blocks back to physical scaffolds.

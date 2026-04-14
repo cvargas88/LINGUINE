@@ -31,7 +31,9 @@ create_linguine_config(
   paralogy_odds = 10,
   outgroup_dominance = 0.05,
   parent_assignment = 0.6,
-  ribbon_max_links = 5
+  ribbon_max_links = 5,
+  min_lg_fraction = 0.01,
+  resolve_multimapped = "drop"
 )
 }
 \arguments{
@@ -88,6 +90,10 @@ create_linguine_config(
 \item{parent_assignment}{Numeric. Minimum overlap for orphan partition assignment.}
 
 \item{ribbon_max_links}{Numeric. Maximum visual links per orthogroup.}
+
+\item{min_lg_fraction}{Numeric. Minimum fraction of total orthogroups an LG must contain to be retained (e.g., 0.01 for 1\%).}
+
+\item{resolve_multimapped}{Character. Strategy for handling orthogroups mapped to multiple LGs. Options: "drop" (strict 1-to-1), "random" (preserve density), "keep" (preserve paralogy).}
 }
 \value{
 A \code{linguine_config} list object.

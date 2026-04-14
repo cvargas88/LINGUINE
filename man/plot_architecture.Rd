@@ -13,17 +13,21 @@ plot_architecture(
 )
 }
 \arguments{
-\item{ref_species}{Character. Reference lineage.}
+\item{ref_species}{Character. Reference lineage identifier.}
 
-\item{comp_species}{Character. Comparison lineage.}
+\item{comp_species}{Character. Comparison lineage identifier.}
 
-\item{comparison_type}{Character. Architecture of the comparison.}
+\item{comparison_type}{Character. Architecture of the comparison ("tip_vs_tip", "tip_vs_node", "INode_vs_INode").}
 
-\item{parent_node}{Character. Target internal node.}
+\item{parent_node}{Character. Target internal node being reconstructed.}
 
-\item{config}{A \code{linguine_config} object.}
+\item{config}{A \code{linguine_config} object containing path and threshold configurations.}
+}
+\value{
+Invisible NULL. Saves plots and underlying mapping dataframes to the configured plots and results directories.
 }
 \description{
 Generates Oxford Grids and high-fidelity linear/ribbon plots mapping
-algorithmic ancestral states to extant sequences.
+algorithmic ancestral states to extant sequences. Dynamically adapts the coordinate
+projection based on whether the comparison involves tips or internal ancestral nodes.
 }
