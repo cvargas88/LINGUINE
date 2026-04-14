@@ -2,35 +2,17 @@
 % Please edit documentation in R/prepare_synteny_data.R
 \name{prepare_synteny_data}
 \alias{prepare_synteny_data}
-\title{Prepare Synteny Data and HMM Emission Sequences}
+\title{Prepare Genomic and Orthology Data for HMM}
 \usage{
 prepare_synteny_data(
   ref_species,
   comp_species,
   comparison_type,
   parent_node,
-  comp_daughters = NULL,
+  comp_node_daughters,
   config
 )
 }
-\arguments{
-\item{ref_species}{Character. Name of the reference lineage.}
-
-\item{comp_species}{Character. Name of the comparison lineage.}
-
-\item{comparison_type}{Character. Architecture of the comparison ("tip_vs_tip", "tip_vs_INode", "INode_vs_INode").}
-
-\item{parent_node}{Character. Name of the parent node being reconstructed.}
-
-\item{comp_daughters}{Character vector. Names of the comparison node's daughters (required for tip_vs_INode).}
-
-\item{config}{A \code{linguine_config} object.}
-}
-\value{
-Character path to the saved HMM observations RDS file, or NULL if skipped.
-}
 \description{
-Ingests global orthology data, filters for pairwise comparisons,
-and maps spatial gene coordinates to discrete HMM emission symbols
-(e.g., "ON_Chr1", "NO_ORTHOLOG", "MULTIPLE_B_CHRS").
+Prepare Genomic and Orthology Data for HMM
 }

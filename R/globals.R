@@ -1,3 +1,8 @@
+# ==============================================================================
+# Script: R/globals.R
+# Purpose: Global variable declarations to satisfy R CMD check for tidyverse NSE.
+# ==============================================================================
+
 # Silence R CMD check notes for tidyverse non-standard evaluation
 utils::globalVariables(c(
   ".data", ":=", "A_genes", "A_lg", "A_lg1", "A_lg2", "A_orthogroups", "Ancestor_Full_Genes",

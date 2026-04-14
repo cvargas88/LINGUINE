@@ -12,7 +12,6 @@
 #'
 #' @return character. The assigned tip/node label, or a generated "INode_X" string.
 #' @noRd
-
 get_label <- function(index, tree) {
   num_tips <- length(tree$tip.label)
 
@@ -38,7 +37,6 @@ get_label <- function(index, tree) {
 #'
 #' @return NULL. Saves a dataframe to disk containing `ref_chromosome` and `chromosome_length_bp`.
 #' @noRd
-
 extract_chr_sizes <- function(ref_fasta_path, output_chr_sizes_path, min_length = 0) {
   if (!file.exists(ref_fasta_path)) {
     stop(paste0("Error: Reference FASTA file not found at ", ref_fasta_path))
@@ -73,7 +71,6 @@ extract_chr_sizes <- function(ref_fasta_path, output_chr_sizes_path, min_length 
 #' @return character. The extracted ID (matching 'ID=', 'gene=', 'Name=', or 'locus_tag='),
 #' or NA if unparseable.
 #' @noRd
-
 parse_gff_attributes <- function(attributes_string) {
   id_match <- stringr::str_match(attributes_string, "ID=([^;]+)")
   if (!is.na(id_match[2])) return(id_match[2])
@@ -102,7 +99,6 @@ parse_gff_attributes <- function(attributes_string) {
 #'
 #' @return tibble. A deduplicated dataframe of gene models (`gene_id`, `chromosome`, `start`, `end`).
 #' @noRd
-
 read_gff_genes <- function(filepath, species_prefix) {
   message(paste0("Reading GFF file: ", filepath))
 
@@ -138,7 +134,6 @@ read_gff_genes <- function(filepath, species_prefix) {
 #'
 #' @return tibble. The filtered gene dataframe.
 #' @noRd
-
 filter_gff <- function(species_name, config) {
 
   gff_path <- file.path(config$paths$raw_data, paste0(species_name, ".gff"))
@@ -190,8 +185,13 @@ filter_gff <- function(species_name, config) {
 }
 
 #' @title Vectorized Orthogroup Mapping
+#' @description Maps a list of gene IDs to their corresponding Hierarchical Orthogroups (HOGs).
+#'
+#' @param gene_list character vector. A list of gene identifiers.
+#' @param mapping_df data.frame. A dictionary linking Gene_ID to Target_HOG.
+#'
+#' @return character vector. A unique list of mapped HOGs.
 #' @noRd
-
 map_genes_to_hogs <- function(gene_list, mapping_df) {
   if (length(gene_list) == 0) return(character(0))
   dict <- setNames(mapping_df$Target_HOG, mapping_df$Gene_ID)
@@ -201,15 +201,23 @@ map_genes_to_hogs <- function(gene_list, mapping_df) {
 }
 
 #' @title Filter Chromosomal Observations
+#' @description Extracts valid HMM state observations (those starting with S_ or ON_) from a vector.
+#'
+#' @param obs character vector. Raw observations from the HMM pipeline.
+#'
+#' @return character vector. Valid on-chromosome observations.
 #' @noRd
-
 get_on_chrom_observations <- function(obs) {
   obs[stringr::str_detect(obs, "^S_|^ON_")]
 }
 
 #' @title Determine Dominant Chromosome
+#' @description Identifies the most frequent physical chromosome target within a rolling window.
+#'
+#' @param observations character vector. HMM state assignments in a local window.
+#'
+#' @return character. The name of the dominant target chromosome, or 'NON_SYN_BLOCK' if none.
 #' @noRd
-
 get_dominant_chr <- function(observations) {
   on_chrom_obs <- get_on_chrom_observations(observations)
   if (length(on_chrom_obs) == 0) {
@@ -221,8 +229,12 @@ get_dominant_chr <- function(observations) {
 }
 
 #' @title Calculate Synteny Block Metrics
+#' @description Computes purity and abundance metrics for a localized sequence of orthology matches.
+#'
+#' @param raw_observations character vector. Hidden Markov Model output states.
+#'
+#' @return list. Contains `purity` (numeric), `count` (integer), and `dominant` (character).
 #' @noRd
-
 calculate_block_metrics <- function(raw_observations) {
   on_chrom_obs <- get_on_chrom_observations(raw_observations)
   if (length(on_chrom_obs) == 0) {
@@ -242,24 +254,33 @@ calculate_block_metrics <- function(raw_observations) {
 }
 
 #' @title Delineate Syntenic Blocks via Sliding Window
-#' @noRd
-
+#' @description Scans a chromosomal dataframe to partition the sequence into contiguous
+#' syntenic blocks based on local density and purity thresholds.
+#'
+#' @param chr_data tibble. Spatial gene coordinates and initial `inferred_state_hmm1`.
+#' @param config A `linguine_config` object.
+#'
+#' @return tibble. Consolidated coordinate blocks with finalized syntenic states.
+#' @export
 classify_chromosome_blocks <- function(chr_data, config) {
-  win_size <- config$thresholds$window_size
-  purity_thresh <- config$thresholds$purity_threshold
-  min_block <- config$thresholds$min_final_block_size
 
+  window_size <- config$thresholds$window_size
+  purity_threshold <- config$thresholds$purity_threshold
+  min_final_block_size <- config$thresholds$min_final_block_size
+
+  # 1. Establish localized consensus using a rolling window
   chr_data_local_dominance <- chr_data |>
     dplyr::arrange(start) |>
     dplyr::mutate(
       local_dominant_chr = purrr::map_chr(
         dplyr::row_number(),
         ~get_dominant_chr(
-          inferred_state_hmm1[max(1, .x - floor(win_size/2)):min(dplyr::n(), .x + floor(win_size/2))]
+          inferred_state_hmm1[max(1, .x - floor(window_size/2)):min(dplyr::n(), .x + floor(window_size/2))]
         )
       )
     )
 
+  # 2. Extract discrete continuous regions via Run Length Encoding (RLE)
   initial_blocks_summary <- chr_data_local_dominance |>
     dplyr::mutate(
       rle_id = with(rle(local_dominant_chr), rep(seq_along(lengths), lengths))
@@ -274,6 +295,7 @@ classify_chromosome_blocks <- function(chr_data, config) {
       .groups = "drop"
     )
 
+  # 3. Apply state classifications based on established metrics
   initial_block_classified <- initial_blocks_summary |>
     dplyr::mutate(
       purity_metric = purrr::map_dbl(raw_observations, ~calculate_block_metrics(.x)$purity),
@@ -283,14 +305,15 @@ classify_chromosome_blocks <- function(chr_data, config) {
     dplyr::select(-raw_observations, -rle_id) |>
     dplyr::mutate(
       inferred_state_final = dplyr::case_when(
-        block_length < min_block ~ "UNCLEAR_NOISE",
-        purity_metric >= purity_thresh ~ paste0("SYN_TO_", dominant_chr),
-        purity_metric < purity_thresh & unique_on_chroms_count == 2 ~ "TWO_CHR_MIX",
-        purity_metric < purity_thresh & unique_on_chroms_count > 2 ~ "COMPLEX_REARRANGED",
+        block_length < min_final_block_size ~ "UNCLEAR_NOISE",
+        purity_metric >= purity_threshold ~ paste0("SYN_TO_", dominant_chr),
+        purity_metric < purity_threshold & unique_on_chroms_count == 2 ~ "TWO_CHR_MIX",
+        purity_metric < purity_threshold & unique_on_chroms_count > 2 ~ "COMPLEX_REARRANGED",
         TRUE ~ "UNCLEAR_NOISE"
       )
     )
 
+  # 4. Consolidate sequentially adjacent blocks sharing identical states
   main_blocks_to_consolidate <- initial_block_classified |>
     dplyr::filter(inferred_state_final != "UNCLEAR_NOISE") |>
     dplyr::arrange(start_pos)
@@ -322,8 +345,13 @@ classify_chromosome_blocks <- function(chr_data, config) {
 }
 
 #' @title Spatially Map Blocks to Genes
+#' @description Attaches syntenic block classifications back to the individual gene models.
+#'
+#' @param genes_df tibble. The individual gene coordinates.
+#' @param blocks_df tibble. The consolidated structural blocks.
+#'
+#' @return tibble. The gene dataframe with inferred block states appended.
 #' @noRd
-
 map_blocks_to_genes <- function(genes_df, blocks_df) {
   if (is.null(blocks_df) || nrow(blocks_df) == 0) {
     result_df <- genes_df |> dplyr::mutate(inferred_state_blocks = NA_character_)
@@ -354,8 +382,13 @@ map_blocks_to_genes <- function(genes_df, blocks_df) {
 }
 
 #' @title Synthesize Broad Ancestral Regions
+#' @description Converts fully reconstructed ancestral nodes back into pseudo-chromosomal blocks
+#' for downstream cross-node structural comparisons.
+#'
+#' @param ancestral_df tibble. A fully reconstructed ancestral genome object.
+#'
+#' @return tibble. A standardized block-mapping dataframe compatible with the paralogy detector.
 #' @noRd
-
 create_synthetic_broad_regions <- function(ancestral_df) {
   ancestral_df |>
     dplyr::rowwise() |>
@@ -382,8 +415,14 @@ create_synthetic_broad_regions <- function(ancestral_df) {
 }
 
 #' @title Enrich Blocks with Orthogroup Membership
+#' @description Maps underlying physical genes within a block to their global orthogroups.
+#'
+#' @param blocks_df tibble. The spatial linkage blocks.
+#' @param orthogroups_df tibble. The global orthology dictionary.
+#' @param gene_id_column character. The target column containing the gene IDs.
+#'
+#' @return tibble. The blocks dataframe with a nested list column of `orthogroups_in_block`.
 #' @noRd
-
 map_orthogroups_to_blocks <- function(blocks_df, orthogroups_df, gene_id_column) {
   if (!gene_id_column %in% names(blocks_df)) {
     stop(paste0("Error: Column '", gene_id_column, "' not found in blocks_df."))
@@ -402,8 +441,12 @@ map_orthogroups_to_blocks <- function(blocks_df, orthogroups_df, gene_id_column)
 }
 
 #' @title Consolidate Fragmented Linkage Groups
+#' @description Merges physically fragmented collinear blocks that map to the same ancestral state.
+#'
+#' @param broad_regions tibble. Unconsolidated spatial regions.
+#'
+#' @return tibble. Unified spatial regions.
 #' @noRd
-
 merge_fragmented_lgs <- function(broad_regions) {
   if (nrow(broad_regions) == 0) return(broad_regions)
   message(paste0("Merging fragments... Input: ", nrow(broad_regions), " blocks."))
@@ -427,10 +470,17 @@ merge_fragmented_lgs <- function(broad_regions) {
 }
 
 #' @title Execute Paralogy Enrichment Testing
+#' @description Performs combinatorial Fisher's Exact tests across all blocks within a lineage
+#' to identify statistically significant paralogy or whole genome duplication signatures.
+#'
+#' @param blocks_with_og tibble. Linkage blocks mapped with their nested orthogroups.
+#' @param species_name character. The target species identifier.
+#' @param all_orthogroups character vector. The global universe of valid orthogroups.
+#' @param config A `linguine_config` object containing p-value and odds thresholds.
+#'
+#' @return tibble. A list of statistically enriched block pairs indicating paralogy.
 #' @noRd
-
-detect_paralogy_signals <- function(blocks_with_og, species_name, all_orthogroups) {
-  # Note: We will refactor this to accept config$thresholds in Phase 4
+detect_paralogy_signals <- function(blocks_with_og, species_name, all_orthogroups, config) {
   num_blocks <- nrow(blocks_with_og)
   block_pairs <- expand.grid(i = 1:num_blocks, j = 1:num_blocks) |> dplyr::filter(i < j)
   orthogroup_list <- blocks_with_og$orthogroups_in_block
@@ -465,15 +515,21 @@ detect_paralogy_signals <- function(blocks_with_og, species_name, all_orthogroup
     results_df
   ) |>
     dplyr::mutate(p_value_adjusted = p.adjust(p_value, method = "BH")) |>
-    dplyr::filter(p_value_adjusted < paralogy_p_threshold & odds_ratio > paralogy_odds_ratio_threshold) |>
+    dplyr::filter(p_value_adjusted < config$thresholds$paralogy_p & odds_ratio > config$thresholds$paralogy_odds) |>
     dplyr::arrange(p_value_adjusted)
 
   return(final_results)
 }
 
 #' @title Compute Jaccard Similarity Matrix
+#' @description Calculates fractional orthology overlap between the structural blocks
+#' of two divergent lineages to establish homology bridges.
+#'
+#' @param broad_regions_ref tibble. Reference structural blocks.
+#' @param broad_regions_comp tibble. Comparison structural blocks.
+#'
+#' @return matrix. A bidirectional intersection overlap matrix.
 #' @noRd
-
 calculate_overlap_matrix <- function(broad_regions_ref, broad_regions_comp) {
   if (nrow(broad_regions_ref) == 0 || nrow(broad_regions_comp) == 0) {
     return(matrix(nrow = 0, ncol = 0))
@@ -499,8 +555,13 @@ calculate_overlap_matrix <- function(broad_regions_ref, broad_regions_comp) {
 }
 
 #' @title Extract Syntenic Partners
+#' @description Returns the most highly correlated structural targets across a homology matrix.
+#'
+#' @param lg_name character. The target reference linkage group.
+#' @param overlap_matrix matrix. The pre-computed Jaccard overlap matrix.
+#'
+#' @return character vector. Names of matching homologous comparison blocks.
 #' @noRd
-
 get_syntenic_partners <- function(lg_name, overlap_matrix) {
   if (lg_name %in% rownames(overlap_matrix)) {
     partners <- sort(overlap_matrix[lg_name, ], decreasing = TRUE)
@@ -510,8 +571,16 @@ get_syntenic_partners <- function(lg_name, overlap_matrix) {
 }
 
 #' @title Classify Duplication Timing
+#' @description Evaluates intra-lineage paralogy against inter-lineage homology
+#' to determine whether duplications occurred prior to speciation (ancestral) or post-speciation.
+#'
+#' @param paralogy_A tibble. Significant paralog blocks in Lineage A.
+#' @param paralogy_B tibble. Significant paralog blocks in Lineage B.
+#' @param broad_regions_A tibble. Base structural blocks in Lineage A.
+#' @param broad_regions_B tibble. Base structural blocks in Lineage B.
+#'
+#' @return list. Categorized duplications (`ancestral_dups`, `lineage_A`, `lineage_B`).
 #' @noRd
-
 infer_duplication_events <- function(paralogy_A, paralogy_B, broad_regions_A, broad_regions_B) {
   matrix_A_B <- calculate_overlap_matrix(broad_regions_A, broad_regions_B)
   matrix_B_A <- calculate_overlap_matrix(broad_regions_B, broad_regions_A)
@@ -573,8 +642,14 @@ infer_duplication_events <- function(paralogy_A, paralogy_B, broad_regions_A, br
 }
 
 #' @title Graph-Based Linkage Group Consolidation
+#' @description Merges distinct spatial blocks into unified sub-graph components
+#' utilizing inferred paralogy networks via the igraph engine.
+#'
+#' @param broad_regions tibble. Raw spatial blocks.
+#' @param pairs_to_collapse tibble. Significant paralogous pair linkages.
+#'
+#' @return tibble. Unified linkage groups post-consolidation.
 #' @noRd
-
 collapse_lg_pairs <- function(broad_regions, pairs_to_collapse) {
   if (nrow(broad_regions) == 0) {
     return(dplyr::tibble(linkage_group_name = character(), orthogroups_in_block = list(), genes_in_block = list(), original_regions = list()))
@@ -656,8 +731,12 @@ collapse_lg_pairs <- function(broad_regions, pairs_to_collapse) {
 }
 
 #' @title Clean Linkage Group Partitions
+#' @description Merges nested data lists following graph-based consolidation to ensure clean downstream mapping.
+#'
+#' @param collapsed_lg_df tibble. The semi-processed dataframe from graph mapping.
+#'
+#' @return tibble. Dataframe with fully unified list arrays.
 #' @noRd
-
 merge_lg_fragments <- function(collapsed_lg_df) {
   if (nrow(collapsed_lg_df) == 0) {
     return(collapsed_lg_df)
@@ -674,12 +753,29 @@ merge_lg_fragments <- function(collapsed_lg_df) {
 }
 
 #' @title Render Oxford Grid (Dotplot)
+#' @description Generates the underlying ggplot and caching for 2D ancestral synteny mapping.
+#'
+#' @param species_name character. Reference species identifier.
+#' @param other_species_name character. Target mapping entity.
+#' @param chromosome_sizes_df data.frame. Physical scaffold sizes.
+#' @param gene_id_col character. Reference gene string column name.
+#' @param chromosome_col character. Physical chromosome column name.
+#' @param start_col character. Base pair start coordinate column.
+#' @param end_col character. Base pair end coordinate column.
+#' @param spA_vs_spB_data tibble. Processed intersection data mapping species coordinates.
+#' @param og_master_list tibble. Consolidated orthology boundaries.
+#' @param LG_boundaries tibble. Synthesized graph block borders.
+#' @param LG_labels tibble. Calculated plotting midpoints.
+#' @param min_chromosome_length_bp numeric. Configuration filter threshold.
+#' @param lg_colors character vector. Extracted color palette dictionary.
+#' @param config A `linguine_config` list containing file paths and system parameters.
+#'
+#' @return ggplot object. The resulting scatter plot topology.
 #' @noRd
-
 generate_synteny_plot <- function(
     species_name, other_species_name, chromosome_sizes_df, gene_id_col,
     chromosome_col, start_col, end_col, spA_vs_spB_data, og_master_list,
-    LG_boundaries, LG_labels, min_chromosome_length_bp, lg_colors
+    LG_boundaries, LG_labels, min_chromosome_length_bp, lg_colors, config
 ) {
   chromosome_lengths <- chromosome_sizes_df |>
     dplyr::filter(chromosome_length_bp > min_chromosome_length_bp) |>
@@ -707,10 +803,10 @@ generate_synteny_plot <- function(
                   end = dplyr::all_of(end_col),
                   orthogroup, LG = assignment_tag)
 
-  # Temporary placeholder for the hardcoded write path until we refactor module 09
+  # CORRECTED: Save directly to the dynamically generated results folder!
   write.table(
     LGs_df,
-    paste0("LGs_", species_name, "_vs_", other_species_name, ".txt"),
+    file.path(config$paths$results, paste0("LGs_", species_name, "_vs_", other_species_name, ".txt")),
     quote = FALSE, row.names = FALSE, sep = "\t"
   )
 
@@ -768,8 +864,13 @@ generate_synteny_plot <- function(
 }
 
 #' @title Extract Numerical Tree Index
+#' @description Maps a string label safely to its underlying Ape Tree internal numeric index.
+#'
+#' @param tree phylo. The phylogenetic species tree.
+#' @param label character. The node or species label to search.
+#'
+#' @return integer. The parsed index, or NULL if unavailable.
 #' @noRd
-
 get_node_index <- function(tree, label) {
   if (label %in% tree$tip.label) {
     return(which(tree$tip.label == label))
@@ -785,8 +886,15 @@ get_node_index <- function(tree, label) {
 }
 
 #' @title Dynamic Outgroup Identification
+#' @description Travels backwards up the species tree from the Most Recent Common Ancestor
+#' to locate a suitable sister lineage for outgroup polarization mapping.
+#'
+#' @param tree phylo. The species tree.
+#' @param spA character. Reference node/lineage.
+#' @param spB character. Comparison node/lineage.
+#'
+#' @return character. The sister outgroup identifier, or NULL if at the root.
 #' @noRd
-
 get_outgroup_species <- function(tree, spA, spB) {
   idxA <- get_node_index(tree, spA)
   idxB <- get_node_index(tree, spB)
@@ -817,8 +925,15 @@ get_outgroup_species <- function(tree, spA, spB) {
 }
 
 #' @title Genome Retrieval Agent
+#' @description Safely retrieves processed extant genome data if the request involves a tip.
+#'
+#' @param species_name character. Target string label.
+#' @param is_node logical. Flag indicating if target is internal graph node.
+#' @param processed_dir character. System path.
+#' @param results_dir character. System path.
+#'
+#' @return list. Contains the type and corresponding dataframe, or NULL.
 #' @noRd
-
 load_genome_content <- function(species_name, is_node, processed_dir, results_dir) {
   if (!is_node) {
     fpath <- file.path(processed_dir, paste0(species_name, "_genes_df.rds"))
@@ -832,8 +947,14 @@ load_genome_content <- function(species_name, is_node, processed_dir, results_di
 }
 
 #' @title Isolate Valid Syntenic Spans
+#' @description Drops highly fragmented linkage blocks falling below mathematical relevance thresholds.
+#'
+#' @param df tibble. Raw spatial regions.
+#' @param min_ogs numeric. Minimum hard count of valid orthogroups inside block.
+#' @param rel_threshold numeric. Proportion threshold for dynamic retention.
+#'
+#' @return tibble. The filtered broad regions frame.
 #' @noRd
-
 clean_broad_regions <- function(df, min_ogs = 20, rel_threshold = 0.01) {
   total_ogs_in_species <- sum(sapply(df$orthogroups_in_block, length))
 
@@ -846,8 +967,12 @@ clean_broad_regions <- function(df, min_ogs = 20, rel_threshold = 0.01) {
 }
 
 #' @title Format Visual Output Vectors
+#' @description Flattens nested array strings into semicolons for clean graphical plotting tags.
+#'
+#' @param lg_list_col list. Array of linkage group strings.
+#'
+#' @return character vector. Unified, semi-colon separated string outputs.
 #' @noRd
-
 flatten_lg_list <- function(lg_list_col) {
   purrr::map_chr(lg_list_col, ~ paste(unique(.x), collapse = ";"))
 }
@@ -861,7 +986,6 @@ flatten_lg_list <- function(lg_list_col) {
 #'
 #' @return tibble. A standardized dataframe mapping Gene_ID to Orthogroup/HOG.
 #' @noRd
-
 parse_global_orthology <- function(config) {
 
   if (config$orthology_type == "HOGs") {

@@ -1,4 +1,4 @@
-#' Execute Synteny HMM Inference
+#' @title Execute Synteny HMM Inference
 #'
 #' @description Configures transition/emission matrices dynamically based on input
 #' dimensions and applies the Viterbi algorithm to decode hidden ancestral states.
@@ -31,21 +31,13 @@ run_synteny_hmm <- function(ref_species, comp_species, comparison_type, hmm_obs_
   # ----------------------------------------------------------------------------
   # 1. State Space Discovery
   # ----------------------------------------------------------------------------
-  if (comparison_type == "tip_vs_tip") {
-    all_comp_chrs <- gene_obs |>
-      dplyr::filter(stringr::str_detect(temp_observation, paste0("^ON_", comp_species))) |>
-      dplyr::pull(temp_observation) |>
-      stringr::str_replace_all(paste0("^ON_", comp_species, "\\."), "") |>
-      unique() |> sort()
-    full_comp_chr_ids <- paste0(comp_species, ".", all_comp_chrs)
-  } else {
-    full_comp_chr_ids <- gene_obs |>
-      dplyr::filter(stringr::str_detect(temp_observation, "^ON_")) |>
-      dplyr::filter(!temp_observation %in% c("ON_MULTIPLE_B_CHRS", "ON_NO_ORTHOLOG")) |>
-      dplyr::pull(temp_observation) |>
-      stringr::str_replace_all("^ON_", "") |>
-      unique() |> sort()
-  }
+  # Universally extract the true target ID regardless of comparison type.
+  full_comp_chr_ids <- gene_obs |>
+    dplyr::filter(stringr::str_detect(temp_observation, "^ON_")) |>
+    dplyr::filter(!temp_observation %in% c("ON_MULTIPLE_B_CHRS", "ON_NO_ORTHOLOG")) |>
+    dplyr::pull(temp_observation) |>
+    stringr::str_replace_all("^ON_", "") |>
+    unique() |> sort()
 
   if (length(full_comp_chr_ids) == 0) stop("CRITICAL ERROR: Zero specific spatial signals isolated.")
 

@@ -1,120 +1,164 @@
-#' Prepare Synteny Data and HMM Emission Sequences
+#' @title Prepare Genomic and Orthology Data for HMM
 #'
-#' @description Ingests global orthology data, filters for pairwise comparisons,
-#' and maps spatial gene coordinates to discrete HMM emission symbols
-#' (e.g., "ON_Chr1", "NO_ORTHOLOG", "MULTIPLE_B_CHRS").
+#' @description Merges physical gene coordinates with global orthology data to generate
+#' the raw sequence of emission states required by the Hidden Markov Model. It gracefully
+#' handles both extant-to-extant (tip_vs_tip) and extant-to-ancestor (tip_vs_node) mappings.
 #'
-#' @param ref_species Character. Name of the reference lineage.
-#' @param comp_species Character. Name of the comparison lineage.
-#' @param comparison_type Character. Architecture of the comparison ("tip_vs_tip", "tip_vs_INode", "INode_vs_INode").
-#' @param parent_node Character. Name of the parent node being reconstructed.
-#' @param comp_daughters Character vector. Names of the comparison node's daughters (required for tip_vs_INode).
-#' @param config A `linguine_config` object.
+#' @param ref_species Character. Reference lineage identifier.
+#' @param comp_species Character. Comparison lineage identifier.
+#' @param comparison_type Character. Architecture of the comparison ("tip_vs_tip", "tip_vs_node", etc.).
+#' @param parent_node Character. Target internal node representing the most recent common ancestor.
+#' @param comp_node_daughters Character vector. The two immediate descending lineages of the comparison node.
+#' @param config A \code{linguine_config} object created by \code{create_linguine_config()}.
 #'
-#' @return Character path to the saved HMM observations RDS file, or NULL if skipped.
+#' @return Character path to the saved HMM observation RDS file, or NULL if skipped.
 #' @export
-prepare_synteny_data <- function(ref_species, comp_species, comparison_type, parent_node, comp_daughters = NULL, config) {
+prepare_synteny_data <- function(ref_species, comp_species, comparison_type, parent_node, comp_node_daughters, config) {
 
+  message("\n--- Integrating Genomic and Orthology Data (", ref_species, " vs ", comp_species, ") ---")
+
+  # Short-circuit immediately for INode to prevent loading extant gene files
   if (comparison_type == "INode_vs_INode") {
-    message("Skipping preliminary HMM emission mapping for structural Node-vs-Node analysis.")
+    message("Skipping preliminary HMM emission mapping for strictly structural Node-vs-Node analysis.")
     return(NULL)
   }
 
-  message(sprintf("\n--- Integrating Genomic and Orthology Data (%s vs %s) ---", ref_species, comp_species))
+  # ==============================================================================
+  # 1. Load Extant Gene Coordinates
+  # ==============================================================================
+  ref_genes_df_path <- file.path(config$paths$processed_data, paste0(ref_species, "_genes_df.rds"))
+  if (!file.exists(ref_genes_df_path)) stop("CRITICAL ERROR: Gene mapping missing for ", ref_species)
+  ref_genes_raw <- readRDS(ref_genes_df_path)
 
-  # ----------------------------------------------------------------------------
-  # 1. Global Orthology Ingestion (Run once per dataset)
-  # ----------------------------------------------------------------------------
-  ortho_type <- config$orthology_type
-  ortho_path <- file.path(config$paths$processed_data, paste0("ortholog_data_", ortho_type, ".rds"))
-
-  if (file.exists(ortho_path)) {
-    orthogroups_final <- readRDS(ortho_path)
-  } else {
-    message("Parsing global orthology data for the first time...")
-    # NOTE: To keep this file clean, we rely on a helper function in utils.R
-    # to handle the massive HOGs pivot_longer logic.
-    orthogroups_final <- parse_global_orthology(config)
-    saveRDS(orthogroups_final, ortho_path)
+  if (comparison_type == "tip_vs_tip") {
+    comp_genes_df_path <- file.path(config$paths$processed_data, paste0(comp_species, "_genes_df.rds"))
+    if (!file.exists(comp_genes_df_path)) stop("CRITICAL ERROR: Gene mapping missing for ", comp_species)
+    comp_genes_raw <- readRDS(comp_genes_df_path)
   }
 
-  # ----------------------------------------------------------------------------
-  # 2. Pairwise Filtration & Spatial Join
-  # ----------------------------------------------------------------------------
-  filtered_ortho_path <- file.path(config$paths$processed_data, paste0(ref_species, "_vs_", comp_species, "_ortholog_data_filtered.rds"))
+  # ==============================================================================
+  # 2. Ingest and Standardize Global Orthology
+  # ==============================================================================
+  ortholog_data_path <- file.path(config$paths$processed_data, paste0("ortholog_data_", config$orthology_type, ".rds"))
 
-  if (!file.exists(filtered_ortho_path)) {
-    id_col_name <- if (ortho_type == "OGs") "Orthogroup" else paste0("HOG_", parent_node)
-    if (!id_col_name %in% colnames(orthogroups_final)) id_col_name <- "Orthogroup" # Fallback for N0
+  if (!file.exists(ortholog_data_path)) {
+    if (config$orthology_type == "HOGs") {
+      ortholog_data_files <- list.files(file.path(config$paths$raw_data, config$orthology_filename), full.names = TRUE)
+      names(ortholog_data_files) <- sapply(strsplit(ortholog_data_files, "/"), function(x) sub(".tsv", "", x[grep(".tsv", x)]))
+      ortholog_data_files <- ortholog_data_files[gtools::mixedorder(names(ortholog_data_files))]
 
-    # Isolate shared orthogroups
+      message("Processing ", length(ortholog_data_files), " HOG files...")
+      list_of_hog_dfs <- lapply(seq_along(ortholog_data_files), function(i) {
+        file_path <- ortholog_data_files[i]
+        node_id <- names(ortholog_data_files)[i]
+        node_data_raw <- read.delim(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
+
+        hog_col_name <- "HOG"
+        new_col_name <- paste0("HOG_", node_id)
+        species_cols_start <- which(names(node_data_raw) == "Gene Tree Parent Clade") + 1
+
+        node_data_raw |>
+          dplyr::select(Orthogroup = OG, !!dplyr::sym(hog_col_name), dplyr::all_of(names(node_data_raw)[species_cols_start:ncol(node_data_raw)])) |>
+          tidyr::pivot_longer(cols = -c(Orthogroup, !!dplyr::sym(hog_col_name)), names_to = "Species", values_to = "Gene_IDs_List") |>
+          dplyr::filter(Gene_IDs_List != "" & Gene_IDs_List != "-") |>
+          tidyr::separate_rows(Gene_IDs_List, sep = ",\\s*") |>
+          dplyr::mutate(Gene_ID = trimws(Gene_IDs_List)) |>
+          dplyr::select(Gene_ID, Species, Orthogroup, !!dplyr::sym(new_col_name) := !!dplyr::sym(hog_col_name))
+      })
+
+      message("Executing full spatial join across all hierarchical nodes...")
+      orthogroups_final <- Reduce(function(x, y) dplyr::full_join(x, y, by = c("Gene_ID", "Species", "Orthogroup")), list_of_hog_dfs)
+      saveRDS(orthogroups_final, file = ortholog_data_path)
+      message("Hierarchical integration complete. Total unique genes mapped: ", nrow(orthogroups_final))
+
+    } else {
+      orthogroups_raw <- read.delim(file.path(config$paths$raw_data, config$orthology_filename), header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
+      orthogroups_final <- orthogroups_raw |>
+        tidyr::pivot_longer(cols = -Orthogroup, names_to = "Species", values_to = "Gene_IDs_List") |>
+        dplyr::filter(Gene_IDs_List != "") |>
+        tidyr::separate_rows(Gene_IDs_List, sep = ", ") |>
+        dplyr::mutate(Gene_ID = trimws(Gene_IDs_List)) |>
+        dplyr::select(Gene_ID, Species, Orthogroup)
+      saveRDS(orthogroups_final, file = ortholog_data_path)
+      message("Standard OG parsing complete.")
+    }
+  } else {
+    orthogroups_final <- readRDS(ortholog_data_path)
+  }
+
+  # ==============================================================================
+  # 3. Execute Pairwise Filtration
+  # ==============================================================================
+  ortholog_data_filtered_path <- file.path(config$paths$processed_data, paste0(ref_species, "_vs_", comp_species, "_ortholog_data_filtered.rds"))
+
+  if (!file.exists(ortholog_data_filtered_path)) {
+    if (config$orthology_type == "OGs") {
+      id_col_name <- "Orthogroup"
+    } else {
+      id_col_name <- paste0("HOG_", parent_node)
+      if (!id_col_name %in% colnames(orthogroups_final)) {
+        if (parent_node == "N0") id_col_name <- "Orthogroup" else stop("CRITICAL ERROR: Column ", id_col_name, " is missing.")
+      }
+    }
+
     filtered_df <- orthogroups_final |>
-      dplyr::select(Gene_ID, Species, OG_ID = dplyr::sym(id_col_name)) |>
+      dplyr::select(Gene_ID, Species, OG_ID = !!dplyr::sym(id_col_name)) |>
       dplyr::filter(!is.na(OG_ID)) |>
       dplyr::group_by(OG_ID) |>
       dplyr::filter(dplyr::n_distinct(Species) > 1) |>
       dplyr::ungroup()
 
-    # Map Reference Coordinates
-    ref_genes <- readRDS(file.path(config$paths$processed_data, paste0(ref_species, "_genes_df.rds")))
-
-    ref_df <- filtered_df |>
-      dplyr::filter(Species == ref_species) |>
-      dplyr::select(ref_gene_id = Gene_ID, OG_ID)
+    ref_df <- filtered_df |> dplyr::filter(Species == ref_species) |> dplyr::select(Gene_ID_Ref = Gene_ID, OG_ID)
 
     if (comparison_type == "tip_vs_tip") {
-      comp_genes <- readRDS(file.path(config$paths$processed_data, paste0(comp_species, "_genes_df.rds")))
-      comp_df <- filtered_df |>
-        dplyr::filter(Species == comp_species) |>
-        dplyr::select(comp_gene_id = Gene_ID, OG_ID)
-
-      ortholog_data_filtered <- ref_df |>
-        dplyr::left_join(comp_df, by = "OG_ID", relationship = "many-to-many") |>
-        dplyr::inner_join(dplyr::select(ref_genes, ref_gene_id = gene_id, ref_chromosome = chromosome, ref_start = start, ref_end = end), by = "ref_gene_id") |>
-        dplyr::inner_join(dplyr::select(comp_genes, comp_gene_id = gene_id, comp_chromosome = chromosome, comp_start = start, comp_end = end), by = "comp_gene_id")
-
-    } else { # tip_vs_INode
-      ortholog_data_filtered <- ref_df |>
-        dplyr::inner_join(dplyr::select(ref_genes, ref_gene_id = gene_id, ref_chromosome = chromosome, ref_start = start, ref_end = end), by = "ref_gene_id")
+      comp_df <- filtered_df |> dplyr::filter(Species == comp_species) |> dplyr::select(Gene_ID_Comp = Gene_ID, OG_ID)
+      ortholog_temp <- ref_df |> dplyr::left_join(comp_df, by = "OG_ID", relationship = "many-to-many") |> dplyr::select(ref_gene_id = Gene_ID_Ref, comp_gene_id = Gene_ID_Comp, OG_ID)
+      ortholog_data_filtered <- ortholog_temp |>
+        dplyr::inner_join(ref_genes_raw |> dplyr::select(ref_gene_id = gene_id, ref_chromosome = chromosome, ref_start = start, ref_end = end), by = "ref_gene_id") |>
+        dplyr::inner_join(comp_genes_raw |> dplyr::select(comp_gene_id = gene_id, comp_chromosome = chromosome, comp_start = start, comp_end = end), by = "comp_gene_id")
+    } else {
+      ortholog_temp <- ref_df |> dplyr::select(ref_gene_id = Gene_ID_Ref, OG_ID)
+      ortholog_data_filtered <- ortholog_temp |>
+        dplyr::inner_join(ref_genes_raw |> dplyr::select(ref_gene_id = gene_id, ref_chromosome = chromosome, ref_start = start, ref_end = end), by = "ref_gene_id")
     }
 
     if (nrow(ortholog_data_filtered) == 0) stop("CRITICAL ERROR: No viable ortholog pairs remained post-spatial mapping.")
-    saveRDS(ortholog_data_filtered, filtered_ortho_path)
+    saveRDS(ortholog_data_filtered, file = ortholog_data_filtered_path)
   } else {
-    ortholog_data_filtered <- readRDS(filtered_ortho_path)
+    ortholog_data_filtered <- readRDS(ortholog_data_filtered_path)
   }
 
-  # ----------------------------------------------------------------------------
-  # 3. HMM Emission Sequence Generation
-  # ----------------------------------------------------------------------------
-  hmm_obs_path <- file.path(config$paths$intermediate_data, paste0("hmm_observations_detailed_", ref_species, "_ref_", comp_species, "_comp.rds"))
+  # ==============================================================================
+  # 4. HMM Emission Sequence Generation
+  # ==============================================================================
+  hmm_observation_path <- file.path(config$paths$intermediate_data, paste0("hmm_observations_detailed_", ref_species, "_ref_", comp_species, "_comp.rds"))
 
-  if (file.exists(hmm_obs_path)) {
-    message("Info: HMM emission sequence already exists. Skipping generation.")
-    return(hmm_obs_path)
+  if (file.exists(hmm_observation_path)) {
+    return(hmm_observation_path)
   }
 
   message("Computing Structural HMM Emission Sequences...")
-  ref_genes_df <- readRDS(file.path(config$paths$processed_data, paste0(ref_species, "_genes_df.rds")))
 
   if (comparison_type == "tip_vs_tip") {
-    # Resolve multiple-mapping conflicts via majority consensus
     gene_comp_chroms <- ortholog_data_filtered |>
       dplyr::group_by(ref_gene_id) |>
       dplyr::count(comp_chromosome, name = "count_chr") |>
       dplyr::filter(count_chr == max(count_chr)) |>
       dplyr::summarise(primary_comp_chr = sample(comp_chromosome, 1), .groups = 'drop')
 
-    gene_ortho_summary <- ortholog_data_filtered |>
+    gene_ortholog_summary <- ortholog_data_filtered |>
       dplyr::group_by(ref_gene_id) |>
-      dplyr::summarise(num_ortholog_hits = dplyr::n(), all_comp_chromosomes = list(unique(comp_chromosome)), Orthogroup = unique(OG_ID)[1], .groups = 'drop')
+      dplyr::summarise(num_ortholog_hits = dplyr::n(), all_comp_chromosomes = list(unique(comp_chromosome)), Orthogroup = unique(OG_ID), .groups = 'drop')
 
-    hmm_observation_df <- ref_genes_df |>
+    hmm_observation_df <- ref_genes_raw |>
       dplyr::left_join(gene_comp_chroms, by = c("gene_id" = "ref_gene_id")) |>
-      dplyr::left_join(gene_ortho_summary, by = c("gene_id" = "ref_gene_id")) |>
+      dplyr::mutate(temp_observation = NA_character_) |>
+      dplyr::left_join(gene_ortholog_summary, by = c("gene_id" = "ref_gene_id")) |>
       dplyr::mutate(
         num_ortholog_hits = dplyr::coalesce(num_ortholog_hits, 0L),
-        all_comp_chromosomes = purrr::map(all_comp_chromosomes, function(x) if (is.null(x)) character(0) else x)
+        all_comp_chromosomes = purrr::map(all_comp_chromosomes, function(x) {
+          if (is.null(x)) return(character(0)) else return(x)
+        })
       ) |>
       dplyr::rowwise() |>
       dplyr::mutate(
@@ -124,56 +168,61 @@ prepare_synteny_data <- function(ref_species, comp_species, comparison_type, par
           length(all_comp_chromosomes) == 1 ~ paste0("ON_", primary_comp_chr),
           TRUE ~ "UNKNOWN_CLASSIFICATION"
         )
-      ) |>
-      dplyr::ungroup() |>
-      dplyr::select(gene_id, chromosome, start, end, primary_comp_chr, temp_observation, all_comp_chromosomes, Orthogroup)
+      ) |> dplyr::ungroup() |> dplyr::select(gene_id, chromosome, start, end, primary_comp_chr, temp_observation, all_comp_chromosomes, Orthogroup)
 
-  } else { # tip_vs_INode
-    # Find the correct ancestral map (either A_B or B_A)
-    anc_path <- file.path(config$paths$results, paste0("ancestral_genome_", comp_daughters[1], "_", comp_daughters[2], ".rds"))
-    if (!file.exists(anc_path)) anc_path <- file.path(config$paths$results, paste0("ancestral_genome_", comp_daughters[2], "_", comp_daughters[1], ".rds"))
-    if (!file.exists(anc_path)) stop("Ancestral genome mapping missing for structural evaluation.")
+  } else {
+    anc_A_file <- file.path(config$paths$results, paste0("ancestral_genome_", comp_node_daughters[1], "_", comp_node_daughters[2], ".rds"))
+    anc_B_file <- file.path(config$paths$results, paste0("ancestral_genome_", comp_node_daughters[2], "_", comp_node_daughters[1], ".rds"))
+    ancestral_genome_path <- if(file.exists(anc_A_file)) anc_A_file else anc_B_file
+    if (!file.exists(ancestral_genome_path)) stop("CRITICAL ERROR: Ancestral genome mapping missing for structural evaluation.")
 
-    anc_df <- readRDS(anc_path)
+    ancestral_genome_df <- readRDS(ancestral_genome_path)
 
-    # HOG mapping logic wrapped safely
-    if (ortho_type == "HOGs") {
-      hog_col <- paste0("HOG_", parent_node)
-      anc_df <- anc_df |>
+    if (config$orthology_type == "HOGs") {
+      target_hog_col_name <- paste0("HOG_", parent_node)
+      hog_mapping_df <- orthogroups_final |> dplyr::select(Gene_ID, Target_HOG = dplyr::sym(target_hog_col_name)) |> dplyr::filter(!is.na(Target_HOG))
+      ancestral_genome_df <- ancestral_genome_df |>
         dplyr::mutate(
-          Ancestor_Full_OGs = purrr::map(Ancestor_Full_Genes, map_genes_to_hogs, mapping_df = dplyr::select(orthogroups_final, Gene_ID, Target_HOG = dplyr::sym(hog_col)))
+          Ancestor_Full_OGs = purrr::map(Ancestor_Full_Genes, map_genes_to_hogs, mapping_df = hog_mapping_df),
+          Ancestor_og_count = purrr::map_int(Ancestor_Full_OGs, length)
         )
     }
 
-    inode_og_lookup <- anc_df |>
+    inode_og_map_raw <- ancestral_genome_df |>
       dplyr::select(ancestral_lg_name, Ancestor_Full_OGs) |>
-      tidyr::unnest(Ancestor_Full_OGs) |>
-      dplyr::rename(Orthogroup = Ancestor_Full_OGs) |>
-      dplyr::distinct() |>
-      dplyr::group_by(Orthogroup) |>
-      dplyr::summarise(relevant_lgs = list(unique(ancestral_lg_name)), .groups = 'drop')
+      tidyr::pivot_longer(cols = Ancestor_Full_OGs, names_to = "source_side", values_to = "og_list") |>
+      tidyr::unnest(og_list) |> dplyr::rename(Orthogroup = og_list) |> dplyr::select(ancestral_lg_name, Orthogroup) |> dplyr::distinct()
 
-    hmm_observation_df <- ref_genes_df |>
-      dplyr::left_join(dplyr::distinct(dplyr::select(ortholog_data_filtered, gene_id = ref_gene_id, Orthogroup = OG_ID)), by = "gene_id") |>
-      dplyr::left_join(inode_og_lookup, by = "Orthogroup") |>
+    inode_og_map_lookup <- inode_og_map_raw |>
+      dplyr::group_by(Orthogroup) |> dplyr::summarise(relevant_lgs = list(unique(ancestral_lg_name)), .groups = 'drop')
+
+    tip_gene_og_map <- ortholog_data_filtered |> dplyr::select(gene_id = ref_gene_id, Orthogroup = OG_ID) |> dplyr::distinct()
+
+    hmm_observation_df <- ref_genes_raw |>
+      dplyr::left_join(tip_gene_og_map, by = "gene_id") |>
+      dplyr::left_join(inode_og_map_lookup, by = "Orthogroup") |>
       dplyr::mutate(
         all_comp_chromosomes = dplyr::case_when(
-          is.na(Orthogroup) | purrr::map_lgl(relevant_lgs, is.null) ~ list(character(0)),
+          is.na(Orthogroup) ~ list(character(0)),
+          purrr::map_lgl(relevant_lgs, is.null) ~ list(character(0)),
           TRUE ~ relevant_lgs
         ),
         lg_count = purrr::map_dbl(all_comp_chromosomes, length),
+        on_lg_string = dplyr::if_else(lg_count == 1, purrr::map_chr(all_comp_chromosomes, ~ paste0("ON_", .x[1])), NA_character_),
         temp_observation = dplyr::case_when(
           lg_count == 0 ~ "NO_ORTHOLOG",
           lg_count > 1 ~ "MULTIPLE_B_CHRS",
-          lg_count == 1 ~ purrr::map_chr(all_comp_chromosomes, ~ paste0("ON_", .x[1])),
+          lg_count == 1 ~ on_lg_string,
           TRUE ~ "UNKNOWN_CLASSIFICATION"
         ),
         primary_comp_chr = ifelse(grepl("^ON_", temp_observation), sub("ON_", "", temp_observation), NA_character_)
-      ) |>
-      dplyr::select(gene_id, chromosome, start, end, primary_comp_chr, temp_observation, all_comp_chromosomes, Orthogroup)
+      ) |> dplyr::select(gene_id, chromosome, start, end, primary_comp_chr, temp_observation, all_comp_chromosomes, Orthogroup)
   }
 
-  saveRDS(hmm_observation_df, hmm_obs_path)
+  hmm_observation_df <- hmm_observation_df |> dplyr::mutate(temp_observation = tidyr::replace_na(temp_observation, "UNKNOWN_CLASSIFICATION"))
+  saveRDS(hmm_observation_df, file = hmm_observation_path)
+
   message("HMM sequence assignment successfully completed.")
-  return(hmm_obs_path)
+
+  return(hmm_observation_path)
 }

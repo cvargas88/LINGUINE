@@ -11,6 +11,7 @@ create_linguine_config(
   orthology_filename = "Orthogroups.tsv",
   tree_filename = "species_tree.nwk",
   base_dir = getwd(),
+  raw_data_dir = NULL,
   prob_self_syn_hmm1 = 0.995,
   prob_to_other_syn_hmm1 = 0.005,
   prob_emit_correct_syn_hmm1_value = 0.85,
@@ -45,6 +46,8 @@ create_linguine_config(
 \item{tree_filename}{Character. Newick tree file name.}
 
 \item{base_dir}{Character. Root directory for the run.}
+
+\item{raw_data_dir}{Character. Optional absolute path to raw data. Defaults to base_dir/raw_data.}
 
 \item{prob_self_syn_hmm1}{Numeric. HMM self-transition probability.}
 

@@ -1,4 +1,4 @@
-#' Process Extant Genome Information
+#' @title Process Extant Genome Information
 #'
 #' @description Extracts chromosomal coordinates from FASTA files and filters gene
 #' models from GFF files for extant tip species. Skips processing if intermediate
@@ -14,7 +14,7 @@ process_extant_genome <- function(species_name, is_inode = FALSE, config) {
 
   # 1. Validate the configuration object
   if (!inherits(config, "linguine_config")) {
-    stop("The 'config' argument must be a valid linguine_config object.")
+    stop("CRITICAL ERROR: The 'config' argument must be a valid linguine_config object.")
   }
 
   # 2. Dynamically construct paths using the config object
@@ -27,14 +27,13 @@ process_extant_genome <- function(species_name, is_inode = FALSE, config) {
     message("Info: Processed chromosome metrics for ", species_name, " detected. Skipping extraction.")
   } else {
     if (file.exists(fasta_path)) {
-      # Notice we now explicitly pass the length threshold from the config
       extract_chr_sizes(
         ref_fasta_path = fasta_path,
         output_chr_sizes_path = chr_sizes_path,
         min_length = config$min_chromosome_length_bp
       )
     } else {
-      stop("Error: Required FASTA file for ", species_name, " not found at ", fasta_path)
+      stop("CRITICAL ERROR: Required FASTA file for ", species_name, " not found at ", fasta_path)
     }
   }
 
@@ -43,7 +42,6 @@ process_extant_genome <- function(species_name, is_inode = FALSE, config) {
     message("Info: Processed gene models for ", species_name, " detected. Skipping filtration.")
   } else {
     if (!is_inode) {
-      # Notice we pass the config object so the filter function knows where to look
       invisible(filter_gff(species_name, config))
     }
   }

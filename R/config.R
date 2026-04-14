@@ -8,6 +8,7 @@
 #' @param orthology_filename Character. Target file or directory name.
 #' @param tree_filename Character. Newick tree file name.
 #' @param base_dir Character. Root directory for the run.
+#' @param raw_data_dir Character. Optional absolute path to raw data. Defaults to base_dir/raw_data.
 #' @param prob_self_syn_hmm1 Numeric. HMM self-transition probability.
 #' @param prob_to_other_syn_hmm1 Numeric. HMM distinct-transition probability.
 #' @param prob_emit_correct_syn_hmm1_value Numeric. HMM correct emission probability.
@@ -28,6 +29,8 @@
 #' @param outgroup_dominance Numeric. Minimum proportion for outgroup structural candidate.
 #' @param parent_assignment Numeric. Minimum overlap for orphan partition assignment.
 #' @param ribbon_max_links Numeric. Maximum visual links per orthogroup.
+#' @param min_lg_fraction Numeric. Minimum fraction of total orthogroups an LG must contain to be retained (e.g., 0.01 for 1%).
+#' @param resolve_multimapped Character. Strategy for handling orthogroups mapped to multiple LGs. Options: "drop" (strict 1-to-1), "random" (preserve density), "keep" (preserve paralogy).
 #'
 #' @return A `linguine_config` list object.
 #' @export
@@ -38,6 +41,7 @@ create_linguine_config <- function(
     orthology_filename = "Orthogroups.tsv",
     tree_filename = "species_tree.nwk",
     base_dir = getwd(),
+    raw_data_dir = NULL,
     prob_self_syn_hmm1 = 0.995,
     prob_to_other_syn_hmm1 = 0.005,
     prob_emit_correct_syn_hmm1_value = 0.85,
@@ -57,10 +61,13 @@ create_linguine_config <- function(
     paralogy_odds = 10.0,
     outgroup_dominance = 0.05,
     parent_assignment = 0.60,
-    ribbon_max_links = 5
+    ribbon_max_links = 5,
+    min_lg_fraction = 0.01,
+    resolve_multimapped = "drop"
 ) {
 
   run_id <- paste0(dataset, "_min_chr_size_", format(min_chromosome_length_bp, scientific = FALSE), "bp")
+  raw_dir_path <- if (!is.null(raw_data_dir)) raw_data_dir else file.path(base_dir, "raw_data")
 
   config <- list(
     dataset = dataset,
@@ -71,7 +78,7 @@ create_linguine_config <- function(
     tree_filename = tree_filename,
 
     paths = list(
-      raw_data = file.path(base_dir, "raw_data"),
+      raw_data = raw_dir_path,
       processed_data = file.path(base_dir, "runs", run_id, "processed_data"),
       intermediate_data = file.path(base_dir, "runs", run_id, "intermediate_data"),
       results = file.path(base_dir, "runs", run_id, "results"),
@@ -101,10 +108,11 @@ create_linguine_config <- function(
       paralogy_odds = paralogy_odds,
       outgroup_dominance = outgroup_dominance,
       parent_assignment = parent_assignment,
-      ribbon_max_links = ribbon_max_links
+      ribbon_max_links = ribbon_max_links,
+      min_lg_fraction = min_lg_fraction,
+      resolve_multimapped = resolve_multimapped
     )
   )
-
   class(config) <- "linguine_config"
   return(config)
 }
