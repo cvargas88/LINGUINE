@@ -1,5 +1,5 @@
 # LINGUINE <img src="man/figures/logo.png" align="left" height="130" />
-**LINkage GroUps INfErence for Ancestral Genomes**
+**LINkage GroUps INfErence**
 
 [![R CMD Check](https://github.com/cvargas88/LINGUINE/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/cvargas88/LINGUINE/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
