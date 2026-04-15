@@ -1,4 +1,4 @@
-# LINGUINE 🍝
+# LINGUINE <img src="man/figures/logo.png" align="right" height="130" />
 **LINkage GroUps INfErence for Ancestral Genomes**
 
 [![R CMD Check](https://github.com/cvargas88/LINGUINE/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/cvargas88/LINGUINE/actions)
@@ -8,11 +8,16 @@ Reconstructing the chromosomal architecture of ancestral genomes is a central ch
 
 **LINGUINE** is a phylogeny-aware R pipeline designed to solve these limitations. Instead of relying purely on single-copy orthologs, LINGUINE leverages full orthogroups to maximize marker density. It employs a Hidden Markov Model (HMM) framework to seamlessly bridge syntenic blocks across gene loss, micro-inversions, and assembly fragmentation.
 
-## ✨ Key Features
-* **Paralogy-Aware:** Automatically resolves paralogy and collapses duplicated linkage groups arising from WGDs prior to ancestral reconstruction.
-* **Orthogroup Integration:** Maximizes evolutionary signals by using OrthoFinder Hierarchical Orthogroups (HOGs) rather than strict single-copy genes.
-* **Iterative Post-Order Traversal:** Progressively integrates information from all descendant lineages up the phylogenetic tree, making inferences highly robust to missing data in individual taxa.
-* **Automated Visualization:** Natively generates Oxford Grids, stacked distributions, and chromosomal ideograms for every reconstructed node.
+Crucially, LINGUINE is highly flexible regarding its orthology inputs. It natively ingests outputs from **OrthoFinder**, allowing users to run the pipeline using either standard flat Orthogroups (`Orthogroups.tsv`) or high-resolution Hierarchical Orthogroups (`HOGs`). 
+
+## ⚙️ Pipeline Overview
+LINGUINE reconstructs ancestral states via an iterative post-order traversal of your species tree. For every internal node, the pipeline executes the following sequence:
+
+1. **Genomic Pre-Processing:** Parses FASTA and GFF files, dynamically filtering out fragmented micro-scaffolds based on user-defined length thresholds.
+2. **Orthology Integration:** Maps global orthogroups (OGs or HOGs) to the physical chromosomal coordinates of the descendant lineages.
+3. **HMM Synteny Delineation:** Uses the Viterbi algorithm to decode hidden ancestral states, delineating contiguous syntenic blocks while ignoring local noise.
+4. **Bipartite Graph Reconstruction:** Projects syntenic blocks into a bipartite graph, utilizing an outgroup to polarize "FUSE" vs "SPLIT" chromosomal fusion events.
+5. **Paralogy Resolution:** Explicitly tests for statistically significant paralogy enrichments, collapsing duplicated linkage groups arising from WGDs prior to ancestral finalization to prevent karyotype inflation.
 
 ## ⚠️ Critical Data Requirement
 **Your GFF feature IDs must perfectly match your OrthoFinder sequence IDs!**
@@ -27,9 +32,9 @@ You can install the development version of LINGUINE from GitHub using `devtools`
 devtools::install_github("cvargas88/LINGUINE")
 ```
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Configuration
 
-LINGUINE is operated entirely through a centralized configuration object. 
+LINGUINE is operated entirely through a centralized configuration object. This ensures your runs are highly reproducible.
 
 ```r
 library(LINGUINE)
@@ -42,12 +47,30 @@ config <- create_linguine_config(
   orthology_type = "HOGs",
   orthology_filename = "N0.tsv",
   min_chromosome_length_bp = 4500000, 
-  resolve_multimapped = "drop" # Options: "drop", "keep", "random"
+  resolve_multimapped = "drop" 
 )
 
 # 2. Execute the entire pipeline
 run_linguine(config)
 ```
+
+### Key Configuration Parameters
+The `create_linguine_config()` function accepts several arguments to tune the pipeline to your specific clade's evolutionary rate:
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `dataset` | *String* | The unique name of your run (used for generating output folders). |
+| `base_dir` | *String* | Absolute path to the working directory containing your `raw_data` folder. |
+| `tree_filename` | *String* | Name of your Newick species tree file (must be inside `raw_data`). |
+| `orthology_type` | *String* | Either `"OGs"` for standard Orthogroups or `"HOGs"` for Hierarchical. |
+| `orthology_filename` | *String* | The OrthoFinder output file (e.g., `"Orthogroups.tsv"` or the directory name containing HOG `.tsv` files). |
+| `min_chromosome_length_bp`| *Numeric* | Drops physical scaffolds smaller than this threshold (in base pairs) to remove assembly noise. |
+| `resolve_multimapped` | *String* | Paralogy strategy: `"drop"` (enforces strict 1-to-1 synteny), `"keep"` (preserves paralogy for WGD hunting), or `"random"` (preserves density without inflation). |
+| `min_lg_fraction` | *Numeric* | The minimum fraction of total mapped orthogroups a reconstructed Linkage Group must contain to be retained (e.g., `0.01` for 1%). |
+| `purity_threshold` | *Numeric* | Synteny HMM parameter. The minimum fractional purity (0.0 to 1.0) required to confidently classify a contiguous block. Default is `0.80`. |
+| `paralogy_p` | *Numeric* | Adjusted p-value threshold for the Fisher's Exact Test when collapsing duplicated blocks. Default is `1e-20`. |
+
+*(Note: Advanced HMM transition and emission probabilities can also be customized. Run `?create_linguine_config` in R for the full parameter list).*
 
 ## 📊 Pipeline Outputs
 All outputs are automatically sorted into the directory defined in your `base_dir`:
@@ -59,3 +82,5 @@ All outputs are automatically sorted into the directory defined in your `base_di
 ## 📖 Citation
 If you use LINGUINE in your research, please cite:
 > Vargas-Chávez, C., & Fernández, R. (202X). *[Paper Title]*. [Journal Name]. [DOI]
+
+*(Note: LINGUINE was validated alongside GARLIC: Genome Arrangement and Rearrangement simuLator for Inferring Chromosomal Landscapes).*
