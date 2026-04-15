@@ -1,4 +1,4 @@
-# LINGUINE <img src="man/figures/logo.png" align="right" height="130" />
+# LINGUINE <img src="man/figures/logo.png" align="left" height="130" />
 **LINkage GroUps INfErence for Ancestral Genomes**
 
 [![R CMD Check](https://github.com/cvargas88/LINGUINE/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/cvargas88/LINGUINE/actions)
@@ -43,9 +43,9 @@ library(LINGUINE)
 config <- create_linguine_config(
   dataset = "Nematoda_Analysis",
   base_dir = "/path/to/your/working/directory",
-  tree_filename = "species_tree.nwk",
+  tree_filename = "SpeciesTree_rooted_node_labels.txt",
   orthology_type = "HOGs",
-  orthology_filename = "N0.tsv",
+  orthology_filename = "Phylogenetic_Hierarchical_Orthogroups",
   min_chromosome_length_bp = 4500000, 
   resolve_multimapped = "drop" 
 )
@@ -82,5 +82,3 @@ All outputs are automatically sorted into the directory defined in your `base_di
 ## 📖 Citation
 If you use LINGUINE in your research, please cite:
 > Vargas-Chávez, C., & Fernández, R. (202X). *[Paper Title]*. [Journal Name]. [DOI]
-
-*(Note: LINGUINE was validated alongside GARLIC: Genome Arrangement and Rearrangement simuLator for Inferring Chromosomal Landscapes).*
